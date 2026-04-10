@@ -487,20 +487,20 @@ tbody td.wrap { white-space: normal; }
 
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-lbl">Total</div>
+        <div class="stat-lbl">Total alertes</div>
         <div class="stat-val c-blue" id="s-total">—</div>
       </div>
       <div class="stat-card">
-        <div class="stat-lbl">Nouvelles</div>
+        <div class="stat-lbl">Sans réponse</div>
         <div class="stat-val c-red" id="s-new">—</div>
       </div>
       <div class="stat-card">
-        <div class="stat-lbl">En cours</div>
-        <div class="stat-val c-amber" id="s-pen">—</div>
+        <div class="stat-lbl">Avec réponse</div>
+        <div class="stat-val c-green" id="s-pen">—</div>
       </div>
       <div class="stat-card">
-        <div class="stat-lbl">Résolues</div>
-        <div class="stat-val c-green" id="s-res">—</div>
+        <div class="stat-lbl">Taux réponse</div>
+        <div class="stat-val c-amber" id="s-res">—</div>
       </div>
     </div>
 
@@ -519,12 +519,8 @@ tbody td.wrap { white-space: normal; }
         <option value="RET">Retard</option>
         <option value="AUT">Autre</option>
       </select>
-      <select class="filter-select" id="f-rep" onchange="renderTable()">
-        <option value="">Tous les statuts</option>
-        <option value="new">Nouvelle</option>
-        <option value="pending">En cours</option>
-        <option value="resolved">Résolue</option>
-        <option value="blocked">Bloquée</option>
+      <select class="filter-select" id="f-rep" onchange="renderTable()" style="max-width:220px">
+        <option value="">Toutes les réponses</option>
       </select>
       <input class="filter-input" id="f-search" placeholder="Rechercher véhicule, client, produit..." oninput="renderTable()"/>
     </div>
@@ -670,6 +666,7 @@ function tryLogin() {
   document.getElementById('login-screen').classList.remove('active');
   document.getElementById('dashboard').classList.add('active');
   document.getElementById('zone-pill').textContent = ZONE_LABELS[z];
+  populateRepFilter();
   loadAlerts();
 }
 
@@ -686,6 +683,78 @@ function logout() {
 // ════════════════════════════════════════════════
 //  CHARGEMENT ALERTES depuis Apps Script
 // ════════════════════════════════════════════════
+const REPONSES = [
+  "Arrivée tardive du personnel",
+  "Assure la DD le soir",
+  "Attente de l'arrivée du semi pour effectuer le chargement",
+  "Batterie déchargée",
+  "BL saisi au dépôt",
+  "Client à repositionner",
+  "Client bloqué",
+  "Client FD",
+  "Client non visité",
+  "Clients à faible potentiel visité chaque 15 jours",
+  "Décalage entre les parfums",
+  "Dernier client",
+  "Données mobiles désactivées",
+  "Erreur de manipulation",
+  "Erreur d'ouverture service",
+  "Facture annulée",
+  "Hors secteur",
+  "Indisponible au dépôt lors du chargement",
+  "Journée boissons",
+  "Journée lait blanc",
+  "Le véhicule était en panne",
+  "Le véhicule visite plusieurs secteurs en parallèle",
+  "Livraison d'une commande",
+  "Livraison par commande",
+  "Mise à jour client",
+  "Ne commercialise pas les laits blancs",
+  "Ne commercialise pas les produits frais",
+  "Oubli de pointage",
+  "Problème de connexion",
+  "Problème de synchronisation",
+  "Problème smartphone",
+  "produit disponible demande de chargemement non acceptée",
+  "Rationnement",
+  "Réouverture service",
+  "Rotation effectuée",
+  "Route fermée",
+  "Rupture chez l'avant dernier client",
+  "Rupture dépôt",
+  "Secteur lointain",
+  "Tournée gros",
+  "Véhicule à l'arrêt",
+  "Véhicule kms",
+  "Véhicule non opérationnel",
+  "Véhicule superette",
+  "Véhicule visite plusieurs secteurs en parallèle"
+];
+
+function buildOptions(current) {
+  var opts = '<option value="">— Sélectionner une réponse —</option>';
+  REPONSES.forEach(function(r) {
+    var escaped = r.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    var sel = (current && current.trim() === r.trim()) ? ' selected' : '';
+    opts += '<option value="' + escaped + '"' + sel + '>' + escaped + '</option>';
+  });
+  return opts;
+}
+
+function populateRepFilter() {
+  var sel = document.getElementById('f-rep');
+  REPONSES.forEach(function(r) {
+    var opt = document.createElement('option');
+    opt.value = r; opt.textContent = r;
+    sel.appendChild(opt);
+  });
+}
+
+function repClass(val) {
+  if (!val || val === '') return 'rep-new';
+  return 'rep-resolved';
+}
+
 async function loadAlerts() {
   setSyncState('loading', 'Chargement des alertes...');
   try {
@@ -720,7 +789,7 @@ function getFiltered() {
   const src = document.getElementById('f-search').value.toLowerCase();
   return alerts.filter(a =>
     (!typ || (a.AlerteCode || '').startsWith(typ)) &&
-    (!rep || a.Reponse === rep) &&
+    (!rep || a.Reponse === rep || (rep === '' && (!a.Reponse || a.Reponse === 'new'))) &&
     (!src || [a.IdAlerte, a['Id Alerte'], a['Code Client'], a['Code Produit'], a.Zone].join(' ').toLowerCase().includes(src))
   );
 }
@@ -768,11 +837,8 @@ function renderTable() {
       '<td title="' + esc(desc) + '">' + esc(desc) + '</td>' +
       '<td style="font-family:DM Mono,monospace;font-size:12px;color:var(--muted)">' + esc(date) + '</td>' +
       '<td>' +
-        '<select class="rep-sel rep-' + rep + '" onchange="onRepChange(' + JSON.stringify(id) + ', this)">' +
-          '<option value="new"'      + (rep==='new'      ?' selected':'') + '>Nouvelle</option>' +
-          '<option value="pending"'  + (rep==='pending'  ?' selected':'') + '>En cours</option>' +
-          '<option value="resolved"' + (rep==='resolved' ?' selected':'') + '>Resolue</option>' +
-          '<option value="blocked"'  + (rep==='blocked'  ?' selected':'') + '>Bloquee</option>' +
+        '<select class="rep-sel ' + repClass(rep) + '" onchange="onRepChange(' + JSON.stringify(id) + ', this)">' +
+          buildOptions(rep) +
         '</select>' +
       '</td>' +
       '<td class="wrap">' +
@@ -786,11 +852,15 @@ function renderTable() {
 }
 
 function updateStats(list) {
-  const src = list || getFiltered();
-  document.getElementById('s-total').textContent = src.length;
-  document.getElementById('s-new').textContent  = src.filter(a => !a.Reponse || a.Reponse === 'new').length;
-  document.getElementById('s-pen').textContent  = src.filter(a => a.Reponse === 'pending').length;
-  document.getElementById('s-res').textContent  = src.filter(a => a.Reponse === 'resolved').length;
+  const src = list !== undefined ? list : getFiltered();
+  const total   = src.length;
+  const sans    = src.filter(a => !a.Reponse || a.Reponse === '' || a.Reponse === 'new').length;
+  const avec    = total - sans;
+  const taux    = total > 0 ? Math.round(avec / total * 100) : 0;
+  document.getElementById('s-total').textContent = total;
+  document.getElementById('s-new').textContent   = sans;
+  document.getElementById('s-pen').textContent   = avec;
+  document.getElementById('s-res').textContent   = taux + '%';
 }
 
 function esc(s) {
@@ -803,7 +873,7 @@ function esc(s) {
 function onRepChange(id, sel) {
   const a = alerts.find(x => x.IdAlerte === id);
   if (a) a.Reponse = sel.value;
-  sel.className = `rep-sel rep-${sel.value}`;
+  sel.className = 'rep-sel ' + repClass(sel.value);
   updateStats();
   scheduleSave(id, { Reponse: sel.value });
 }
